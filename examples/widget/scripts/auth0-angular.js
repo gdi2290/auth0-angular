@@ -27,7 +27,61 @@
   angular.module('auth0', [
     'auth0.storage',
     'auth0.service',
-    'auth0.interceptor'
+    'auth0.interceptor',
+    'auth0.utils'
+  ]);
+  angular.module('auth0.utils', []).factory('authUtils', [
+    '$rootScope',
+    '$q',
+    function ($rootScope, $q) {
+      // Utils from Closure
+      Utils.safeApply = function (fn) {
+        var phase = $rootScope.$root.$$phase;
+        if (phase === '$apply' || phase === '$digest') {
+          if (fn && angular.isFunction(fn)) {
+            fn();
+          }
+        } else {
+          $rootScope.$apply(fn);
+        }
+      };
+      Utils.applied = function (fn) {
+        // Adding arguments just due to a bug in Auth0.js.
+        return function (err, response) {
+          // jshint unused:false
+          Utils.safeApply(function () {
+            fn.apply(null, arguments);
+          });
+        };
+      };
+      Utils.promisify = function (nodeback, wrapper) {
+        if (angular.isFunction(nodeback)) {
+          return function (args) {
+            args = Array.prototype.slice.call(arguments);
+            var dfd = $q.defer();
+            var callback = function (err, response, etc) {
+              if (err) {
+                dfd.reject(err);
+              }
+              // if more arguments then turn into an array for .spread()
+              etc = Array.prototype.slice.call(arguments, 1);
+              dfd.resolve(etc.length > 1 ? etc : response);
+            };
+            // if wrapper is provided then wrap callback
+            args.push(angular.isFunction(wrapper) ? wrapper(callback) : callback);
+            nodeback.apply(null, args);
+            // spread polyfill only for promisify
+            dfd.promise.spread = dfd.promise.spread || function (fulfilled, rejected) {
+              return dfd.promise.then(function (array) {
+                return Array.isArray(array) ? fulfilled.apply(null, array) : fulfilled(array);
+              }, rejected);
+            };
+            return dfd.promise;
+          };
+        }
+      };
+      return Utils;
+    }
   ]);
   angular.module('auth0.interceptor', []).factory('authInterceptor', [
     '$rootScope',
@@ -82,11 +136,14 @@
       };
     }
   ]);
-  angular.module('auth0.service', ['auth0.storage']).provider('auth', function () {
+  angular.module('auth0.service', [
+    'auth0.storage',
+    'auth0.utils'
+  ]).provider('auth', function () {
     var defaultOptions = { callbackOnLocationHash: true };
     var config = this;
     this.init = function (options, Auth0Constructor) {
-      if (!Auth0Constructor && typeof Auth0Widget === 'undefined' && typeof Auth0 === 'undefined') {
+      if (!Auth0Constructor && angular.isUndefined(window.Auth0Widget) && angular.isUndefined(window.Auth0)) {
         throw new Error('You must add either Auth0Widget.js or Auth0.js');
       }
       if (!options) {
@@ -97,11 +154,11 @@
       this.clientID = options.clientID;
       this.sso = options.sso;
       var Constructor = Auth0Constructor;
-      if (!Constructor && typeof Auth0Widget !== 'undefined') {
-        Constructor = Auth0Widget;
+      if (!Constructor && angular.isDefined(window.Auth0Widget)) {
+        Constructor = window.Auth0Widget;
       }
-      if (!Constructor && typeof Auth0 !== 'undefined') {
-        Constructor = Auth0;
+      if (!Constructor && angular.isDefined(window.Auth0)) {
+        Constructor = window.Auth0;
       }
       this.auth0lib = new Constructor(angular.extend(defaultOptions, options));
       if (this.auth0lib.getClient) {
@@ -126,6 +183,7 @@
         'forbidden'
       ];
     angular.forEach(events, function (anEvent) {
+      // Utils from Closure
       config['add' + Utils.capitalize(anEvent) + 'Handler'] = function (handler) {
         config.on(anEvent, handler);
       };
@@ -137,7 +195,8 @@
       'authStorage',
       '$window',
       '$location',
-      function ($rootScope, $q, $injector, authStorage, $window, $location) {
+      'authUtils',
+      function ($rootScope, $q, $injector, authStorage, $window, $location, authUtils) {
         var auth = { isAuthenticated: false };
         var getHandlers = function (anEvent) {
           return config.eventHandlers[anEvent];
@@ -146,27 +205,6 @@
           angular.forEach(getHandlers(anEvent) || [], function (handler) {
             $injector.invoke(handler, auth, locals);
           });
-        };
-        var safeApply = function (fn) {
-          var phase = $rootScope.$root.$$phase;
-          if (phase === '$apply' || phase === '$digest') {
-            if (fn && typeof fn === 'function') {
-              fn();
-            }
-          } else {
-            $rootScope.$apply(fn);
-          }
-        };
-        var applied = function (fn) {
-          // Adding arguments just due to a bug in Auth0.js.
-          /*jshint ignore:start */
-          return function (err, response) {
-            /*jshint ignore:end */
-            var argsCall = arguments;
-            safeApply(function () {
-              fn.apply(null, argsCall);
-            });  /*jshint ignore:start */
-          };  /*jshint ignore:end */
         };
         // SignIn
         // Generic things
@@ -186,6 +224,51 @@
           }, response));
           return profilePromise;
         };
+        Utils.safeApply = function (fn) {
+          var phase = $rootScope.$root.$$phase;
+          if (phase === '$apply' || phase === '$digest') {
+            if (fn && angular.isFunction(fn)) {
+              fn();
+            }
+          } else {
+            $rootScope.$apply(fn);
+          }
+        };
+        Utils.applied = function (fn) {
+          // Adding arguments just due to a bug in Auth0.js.
+          return function (err, response) {
+            // jshint unused:false
+            Utils.safeApply(function () {
+              fn.apply(null, arguments);
+            });
+          };
+        };
+        Utils.promisify = function (nodeback, wrapper) {
+          if (angular.isFunction(nodeback)) {
+            return function (args) {
+              args = Array.prototype.slice.call(arguments);
+              var dfd = $q.defer();
+              var callback = function (err, response, etc) {
+                if (err) {
+                  dfd.reject(err);
+                }
+                // if more arguments then turn into an array for .spread()
+                etc = Array.prototype.slice.call(arguments, 1);
+                dfd.resolve(etc.length > 1 ? etc : response);
+              };
+              // if wrapper is provided then wrap callback
+              args.push(angular.isFunction(wrapper) ? wrapper(callback) : callback);
+              nodeback.apply(null, args);
+              // spread polyfill only for promisify
+              dfd.promise.spread = dfd.promise.spread || function (fulfilled, rejected) {
+                return dfd.promise.then(function (array) {
+                  return Array.isArray(array) ? fulfilled.apply(null, array) : fulfilled(array);
+                }, rejected);
+              };
+              return dfd.promise;
+            };
+          }
+        };
         // Redirect mode
         $rootScope.$on('$locationChangeStart', function (e) {
           var hashResult = config.auth0lib.parseHash($window.location.hash);
@@ -200,7 +283,7 @@
               return;
             }
             if (config.sso) {
-              config.auth0js.getSSOData(applied(function (err, ssoData) {
+              config.auth0js.getSSOData(authUtils.applied(function (err, ssoData) {
                 if (ssoData.sso) {
                   auth.signin({
                     popup: false,
@@ -249,7 +332,7 @@
           if (parts.length !== 3) {
             return true;
           }
-          var decoded = Utils.urlBase64Decode(parts[1]);
+          var decoded = authUtils.urlBase64Decode(parts[1]);
           if (!decoded) {
             return true;
           }
@@ -278,15 +361,10 @@
         };
         auth.getToken = function (clientID, options) {
           options = options || { scope: 'openid' };
-          var defered = $q.defer();
-          config.auth0js.getDelegationToken(clientID, this.idToken, options, applied(function (err, delegationResult) {
-            if (err) {
-              defered.reject(err);
-            } else {
-              defered.resolve(delegationResult.id_token);
-            }
-          }));
-          return defered.promise;
+          var getDelegationTokenAsync = authUtils.promisify(config.auth0js.getDelegationToken, authUtils.applied);
+          return getDelegationTokenAsync(clientID, auth.idToken, options).then(function (delegationResult) {
+            return delegationResult.id_token;
+          });
         };
         auth.refreshToken = function (options) {
           return auth.getToken(config.clientID, options);
@@ -294,30 +372,16 @@
         auth.signin = function (options, lib) {
           options = options || {};
           checkHandlers(options);
-          var onPopupSignin = function (defered) {
-            return function (err, profile, idToken, accessToken, state) {
-              if (err) {
-                callHandler('loginFailure', { error: err });
-                defered.reject(err);
-                return;
-              }
-              var profilePromise = onSigninOk(idToken, accessToken, state);
-              profilePromise.then(function (profile) {
-                defered.resolve(profile);
-              }, function (err) {
-                callHandler('loginFailure', { error: err });
-                defered.reject(err);
-              });
-            };
-          };
-          var defered = $q.defer();
           var auth0lib = lib || config.auth0lib;
-          if (config.isWidget) {
-            auth0lib.signin(options, null, applied(onPopupSignin(defered)));
-          } else {
-            auth0lib.signin(options, applied(onPopupSignin(defered)));
-          }
-          return defered.promise;
+          var signinPromisify = authUtils.promisify(auth0lib.signin, authUtils.applied);
+          var signinAsync = config.isWidget ? signinPromisify(options, null) : signinPromisify(options);
+          // Monkey patch promisify promise for .spread()
+          return signinAsync.spread(function (profile, idToken, accessToken, state) {
+            return onSigninOk(idToken, accessToken, state);
+          })['catch'](function (err) {
+            callHandler('loginFailure', { error: err });
+            return $q.reject(err);
+          });
         };
         auth.signout = function () {
           authStorage.remove();
@@ -328,17 +392,11 @@
           auth.isAuthenticated = false;
         };
         auth.getProfile = function (idToken) {
-          var defered = $q.defer();
-          var onProfile = function (err, profile) {
-            if (err) {
-              defered.reject(err);
-              return;
-            }
+          var getProfileAsync = authUtils.promisify(config.auth0lib.getProfile, authUtils.applied);
+          return getProfileAsync(idToken || auth.idToken).then(function (profile) {
             auth.profile = profile;
-            defered.resolve(profile);
-          };
-          config.auth0lib.getProfile(idToken || auth.idToken, applied(onProfile));
-          return defered.promise;
+            return profile;
+          });
         };
         return auth;
       }
