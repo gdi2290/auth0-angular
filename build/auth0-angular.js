@@ -73,7 +73,7 @@
             // spread polyfill only for promisify
             dfd.promise.spread = dfd.promise.spread || function (fulfilled, rejected) {
               return dfd.promise.then(function (array) {
-                return Array.isArray(array) ? fulfilled.apply(null, array) : fulfilled(array);
+                return Array.isArray(array) ? fulfilled.apply(this, array) : fulfilled(array);
               }, rejected);
             };
             return dfd.promise;
@@ -223,51 +223,6 @@
             locationEvent: locationEvent
           }, response));
           return profilePromise;
-        };
-        Utils.safeApply = function (fn) {
-          var phase = $rootScope.$root.$$phase;
-          if (phase === '$apply' || phase === '$digest') {
-            if (fn && angular.isFunction(fn)) {
-              fn();
-            }
-          } else {
-            $rootScope.$apply(fn);
-          }
-        };
-        Utils.applied = function (fn) {
-          // Adding arguments just due to a bug in Auth0.js.
-          return function (err, response) {
-            // jshint unused:false
-            Utils.safeApply(function () {
-              fn.apply(null, arguments);
-            });
-          };
-        };
-        Utils.promisify = function (nodeback, wrapper) {
-          if (angular.isFunction(nodeback)) {
-            return function (args) {
-              args = Array.prototype.slice.call(arguments);
-              var dfd = $q.defer();
-              var callback = function (err, response, etc) {
-                if (err) {
-                  dfd.reject(err);
-                }
-                // if more arguments then turn into an array for .spread()
-                etc = Array.prototype.slice.call(arguments, 1);
-                dfd.resolve(etc.length > 1 ? etc : response);
-              };
-              // if wrapper is provided then wrap callback
-              args.push(angular.isFunction(wrapper) ? wrapper(callback) : callback);
-              nodeback.apply(null, args);
-              // spread polyfill only for promisify
-              dfd.promise.spread = dfd.promise.spread || function (fulfilled, rejected) {
-                return dfd.promise.then(function (array) {
-                  return Array.isArray(array) ? fulfilled.apply(null, array) : fulfilled(array);
-                }, rejected);
-              };
-              return dfd.promise;
-            };
-          }
         };
         // Redirect mode
         $rootScope.$on('$locationChangeStart', function (e) {

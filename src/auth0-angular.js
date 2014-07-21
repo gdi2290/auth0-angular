@@ -65,7 +65,7 @@
           // spread polyfill only for promisify
           dfd.promise.spread = dfd.promise.spread || function(fulfilled, rejected) {
             return dfd.promise.then(function(array) {
-              return (Array.isArray(array)) ? fulfilled.apply(null, array) : fulfilled(array);
+              return (Array.isArray(array)) ? fulfilled.apply(this, array) : fulfilled(array);
             }, rejected);
           };
 
