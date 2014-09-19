@@ -270,7 +270,7 @@
           authStorage.store(idToken, accessToken, state, refreshToken);
 
           var profilePromise = auth.getProfile(idToken);
-          var tokenPayload = auth.getTokenPayload(idToken);
+          var tokenPayload   = auth.getTokenPayload(idToken);
 
           var response = {
             idToken: idToken,
@@ -281,10 +281,11 @@
             tokenPayload: tokenPayload
           };
 
-          angular.extend(auth, response);
-          callHandler(!isRefresh ? 'loginSuccess' : 'authenticated', angular.extend({
-            profile: profilePromise
-          }, response));
+          angular.extend(auth, response, { profilePromise: profilePromise });
+
+          var locals = angular.extend({ profile: profilePromise }, response);
+          var anEvent = (!isRefresh) ? 'loginSuccess' : 'authenticated';
+          callHandler(anEvent, locals);
 
           return profilePromise;
       };
